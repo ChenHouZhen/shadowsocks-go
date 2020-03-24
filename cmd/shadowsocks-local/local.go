@@ -37,6 +37,8 @@ const (
 )
 
 func init() {
+	// 为了每次能生成不同的随机数，如果没有这条语句，rand.Intn() 每次生成会生成相同的随机数
+	// time.now().Unix() 返回当前时间，单位为秒
 	rand.Seed(time.Now().Unix())
 }
 
@@ -292,10 +294,12 @@ func handleConnection(conn net.Conn) {
 	}()
 
 	var err error = nil
+	// 处理 client 的握手请求
 	if err = handShake(conn); err != nil {
 		log.Println("socks handshake:", err)
 		return
 	}
+	// 读取client 包含目标服务器地址和端口的请求
 	rawaddr, addr, err := getRequest(conn)
 	if err != nil {
 		log.Println("error getting request:", err)
@@ -310,6 +314,7 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
+	// 和 ss-server 建立连接
 	remote, err := createServerConn(rawaddr, addr)
 	if err != nil {
 		if len(servers.srvCipher) > 1 {
@@ -323,18 +328,23 @@ func handleConnection(conn net.Conn) {
 		}
 	}()
 
+	// 把收到的 client 的数据 全部加密后转发给 ss-server
 	go ss.PipeThenClose(conn, remote, nil)
+
+	// 把收到的 ss-server 的数据解密后转发给 client
 	ss.PipeThenClose(remote, conn, nil)
 	closed = true
 	debug.Println("closed connection to", addr)
 }
 
 func run(listenAddr string) {
+	// 客户端监听 指定端口，也就是 1080 端口
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("starting local socks5 server at %v ...\n", listenAddr)
+	//  一直循环 ，1080 端口接收到请求后，就发送到服务器
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -345,16 +355,25 @@ func run(listenAddr string) {
 	}
 }
 
+/**
+	判断参数是否齐全
+ */
 func enoughOptions(config *ss.Config) bool {
 	return config.Server != nil && config.ServerPort != 0 &&
 		config.LocalPort != 0 && config.Password != ""
 }
 
+/**
+	返回远程服务器 地址，socks5
+ */
 func parseURI(u string, cfg *ss.Config) (string, error) {
 	if u == "" {
 		return "", nil
 	}
+	// 异常 error
 	invalidURI := errors.New("invalid URI")
+	// 字符串去前缀，TrimLeft返回字符串s的一部分，其中删除了cutset中包含的所有前导Unicode代码点。
+	// 注意 ： strings.TrimLeft 和 strings.TrimPrefix 不一樣
 	// ss://base64(method:password)@host:port
 	// ss://base64(method:password@host:port)
 	u = strings.TrimLeft(u, "ss://")
@@ -402,6 +421,7 @@ func parseURI(u string, cfg *ss.Config) (string, error) {
 }
 
 func main() {
+	// 设置日志输入到 标准输出（并不是文件）
 	log.SetOutput(os.Stdout)
 
 	var configFile, cmdServer, cmdURI string
@@ -424,7 +444,9 @@ func main() {
 
 	if s, e := parseURI(cmdURI, &cmdConfig); e != nil {
 		log.Printf("invalid URI: %s\n", e.Error())
+		// 打印出 参数列表
 		flag.Usage()
+		// 退出程序
 		os.Exit(1)
 	} else if s != "" {
 		cmdServer = s
